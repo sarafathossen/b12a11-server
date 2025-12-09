@@ -299,18 +299,20 @@ async function run() {
 
     // Payment API
     app.post('/payment-checkout-session', async (req, res) => {
-      const paymentInfo = req.body
-      const amount = parseInt(paymentInfo.cost) * 100
+      const paymentInfo = req.body;
+
+      // Ensure cost is number
+      const amount = Number(paymentInfo.cost) * 100;
+
       const session = await stripe.checkout.sessions.create({
         line_items: [
           {
-
             price_data: {
               currency: 'USD',
               unit_amount: amount,
               product_data: {
-                name: `Please Pay for: ${paymentInfo.parcelName}`
-              }
+                name: `Please Pay for: ${paymentInfo.parcelName}`,
+              },
             },
             quantity: 1,
           },
@@ -319,20 +321,20 @@ async function run() {
         metadata: {
           parcelId: paymentInfo.parcelId,
           parcelName: paymentInfo.parcelName,
-
-
         },
         customer_email: paymentInfo.userEmail,
         success_url: `${process.env.SITE_DOMAIN}/dashboard/payment-success?session_id={CHECKOUT_SESSION_ID}`,
         cancel_url: `${process.env.SITE_DOMAIN}/dashboard/payment-cancelled`,
-      })
-      res.send({ url: session.url })
-    })
+      });
+
+      res.send({ url: session.url });
+    });
+
 
     app.get('/payments', async (req, res) => {
       const email = req.query.email;
       const query = {};
-      if(email){
+      if (email) {
         query.customerEmail = email;
         const cursor = paymentCollections.find(query);
         const result = await cursor.toArray();
@@ -345,15 +347,16 @@ async function run() {
     app.patch('/payment-success', async (req, res) => {
       const sessionId = req.query.session_id
       const session = await stripe.checkout.sessions.retrieve(sessionId)
-      const transactionId= session.payment_intent
-      query = { transactionId: transactionId} 
+      const transactionId = session.payment_intent
+      query = { transactionId: transactionId }
       const existingPayment = await paymentCollections.findOne(query);
       if (existingPayment) {
         return res.send({
-           success: true,
-            message: 'Payment already processed', 
-            transactionId: transactionId,
-            trackingId: existingPayment.trackingId});
+          success: true,
+          message: 'Payment already processed',
+          transactionId: transactionId,
+          trackingId: existingPayment.trackingId
+        });
       }
 
 
@@ -379,7 +382,7 @@ async function run() {
           transactionId: session.payment_intent,
           paymentStatus: session.payment_status,
           paidAt: new Date(),
-          trackingId:trackingId,
+          trackingId: trackingId,
 
         }
         if (session.payment_status === 'paid') {
