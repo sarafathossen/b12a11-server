@@ -329,11 +329,34 @@ async function run() {
       res.send({ url: session.url })
     })
 
+    app.get('/payments', async (req, res) => {
+      const email = req.query.email;
+      const query = {};
+      if(email){
+        query.customerEmail = email;
+        const cursor = paymentCollections.find(query);
+        const result = await cursor.toArray();
+        return res.send(result);
+      }
+    })
+
 
     // payment status paid 
     app.patch('/payment-success', async (req, res) => {
       const sessionId = req.query.session_id
       const session = await stripe.checkout.sessions.retrieve(sessionId)
+      const transactionId= session.payment_intent
+      query = { transactionId: transactionId} 
+      const existingPayment = await paymentCollections.findOne(query);
+      if (existingPayment) {
+        return res.send({
+           success: true,
+            message: 'Payment already processed', 
+            transactionId: transactionId,
+            trackingId: existingPayment.trackingId});
+      }
+
+
       console.log('session retrive', session)
       const trackingId = generateTrackingId()
       if (session.payment_status === 'paid') {
@@ -356,6 +379,7 @@ async function run() {
           transactionId: session.payment_intent,
           paymentStatus: session.payment_status,
           paidAt: new Date(),
+          trackingId:trackingId,
 
         }
         if (session.payment_status === 'paid') {
