@@ -15,6 +15,7 @@ const crypto = require("crypto");
 const admin = require("firebase-admin");
 
 const serviceAccount = require("./decoration-booking-system-firebase-adminsdk-fbsvc-81831d7ef6.json");
+// const { use } = require('react');
 
 admin.initializeApp({
   credential: admin.credential.cert(serviceAccount)
@@ -282,13 +283,6 @@ async function run() {
     });
 
 
-
-
-
-
-
-
-
     // delete Booking 
     app.delete('/booking/:id', async (req, res) => {
       const id = req.params.id;
@@ -396,7 +390,34 @@ async function run() {
     })
 
 
+// User Related API 
+    app.get('/users',verifyFbToken, async (req, res) => {
+    const cursor=userCollections.find();
+    const result=await cursor.toArray();
+    res.send(result);
+    });
 
+    app.get('/users/:email/role', async (req, res) => {
+      const email = req.params.email;
+      const query = { email };
+      const user = await userCollections.findOne(query);
+      res.send({ role: user?.role || 'user' });
+    })
+
+
+    // MAke Admin 
+    app.patch('/users/:id/role', async (req, res) => {
+      const id = req.params.id;
+      const roleInfo = req.body;
+      const query = { _id: new ObjectId(id) };
+      const updatedDoc = {
+        $set: {
+          role: roleInfo.role
+        }
+      }
+      const result = await userCollections.updateOne(query, updatedDoc)
+      res.send(result);
+    })
 
 
     // decorator related API 
