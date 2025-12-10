@@ -120,15 +120,25 @@ async function run() {
 
     // Get Deceretor API
     app.get('/decorator', async (req, res) => {
+      const { role, specialty, decoratorWorkingStatus } = req.query;
       const query = {};
 
-      if (req.query.role) {
-        query.role = req.query.role; // e.g. "pending"
+      if (role) {
+        query.role = role;
+      }
+
+      if (specialty) {
+        query.specialty = specialty;
+      }
+
+      if (decoratorWorkingStatus) {
+        query.decoratorWorkingStatus = decoratorWorkingStatus;
       }
 
       const result = await decoratorCollection.find(query).toArray();
       res.send(result);
     });
+
 
 
     // Aproove Deceretor API
@@ -140,7 +150,7 @@ async function run() {
 
         // Decorator collection update
         const update = {
-          $set: { role: status }
+          $set: { role: status, deceretorWorkingStatus: 'available' }
         };
         const result = await decoratorCollection.updateOne(query, update);
 
@@ -149,7 +159,14 @@ async function run() {
           const decorator = await decoratorCollection.findOne(query);
           if (decorator) {
             const userQuery = { email: decorator.email };
-            const userUpdate = { $set: { role: 'decorator' } };
+            const userUpdate = {
+              $set: {
+                role: 'decorator',
+                decoratorWorkingStatus: 'pending'   // <-- এখানে পরিবর্তন
+              }
+            };
+
+            // await userCollections.updateOne(userQuery, userUpdate);
             await userCollections.updateOne(userQuery, userUpdate);
           }
         }
@@ -160,6 +177,19 @@ async function run() {
         res.status(500).send({ message: 'Server Error' });
       }
     });
+
+
+    // decorator related API 
+    app.get('/decorator', async (req, res) => {
+
+      const query = {};
+
+
+      const result = await decoratorCollection.find().toArray()
+
+      res.send(result)
+    })
+
 
 
 
@@ -189,10 +219,13 @@ async function run() {
     // my booking 
     app.get('/booking', async (req, res) => {
       const query = {};
-      const { email } = req.query;
+      const { email, workingStatus } = req.query;
 
       if (email) {
         query.userEmail = email;
+      }
+      if (workingStatus) {
+        query.workingStatus = workingStatus
       }
 
       const options = { sort: { createdAt: -1 } };
@@ -235,32 +268,124 @@ async function run() {
     //     res.status(500).json({ error: "Internal server error." });
     //   }
     // });
+    // app.patch('/booking/:id', async (req, res) => {
+    //   const bookingId = req.params.id;
+    //   const { bookedDate, squareFeet, finalCost } = req.body;
+
+    //   // Basic presence
+    //   if (!bookedDate) {
+    //     console.error('Patch error: bookedDate missing in request body', req.body);
+    //     return res.status(400).json({ error: "Booked date is required." });
+    //   }
+
+    //   // Ensure date is parseable
+    //   const newDate = new Date(bookedDate);
+    //   if (isNaN(newDate.getTime())) {
+    //     console.error('Patch error: invalid bookedDate format', bookedDate);
+    //     return res.status(400).json({ error: "Invalid bookedDate format. Use YYYY-MM-DD." });
+    //   }
+
+    //   // Optional: ensure future date
+    //   const today = new Date();
+    //   today.setHours(0, 0, 0, 0);
+    //   if (newDate < today) {
+    //     console.error('Patch error: bookedDate is in the past', bookedDate);
+    //     return res.status(400).json({ error: "Booked date must be in the future." });
+    //   }
+
+    //   // Validate numeric fields if provided
+    //   const sf = squareFeet !== undefined ? Number(squareFeet) : undefined;
+    //   const fc = finalCost !== undefined ? Number(finalCost) : undefined;
+
+    //   if (squareFeet !== undefined && (isNaN(sf) || sf < 0)) {
+    //     return res.status(400).json({ error: "squareFeet must be a non-negative number." });
+    //   }
+    //   if (finalCost !== undefined && (isNaN(fc) || fc < 0)) {
+    //     return res.status(400).json({ error: "finalCost must be a non-negative number." });
+    //   }
+
+    //   try {
+    //     const updateDoc = {
+    //       $set: {
+    //         bookedDate,
+    //         // deceretorWorkingStatus: 'available' // Reset to available on date change,
+    //       }
+    //     };
+    //     if (sf !== undefined) updateDoc.$set.squareFeet = sf;
+    //     if (fc !== undefined) updateDoc.$set.finalCost = fc;
+
+    //     console.log('Patch request for bookingId:', bookingId, 'update:', updateDoc.$set);
+
+    //     const result = await bookingCollection.updateOne(
+    //       { _id: new ObjectId(bookingId) },
+    //       updateDoc
+    //     );
+
+    //     if (result.modifiedCount > 0) {
+    //       return res.json({ modifiedCount: result.modifiedCount });
+    //     } else {
+    //       return res.status(404).json({ error: "Booking not found or no changes made." });
+    //     }
+    //   } catch (error) {
+    //     console.error('Patch exception:', error);
+    //     return res.status(500).json({ error: "Internal server error." });
+    //   }
+    // });
+
+    // app.patch('/booking/:id',async (req,res)=>{
+    //   const {deceretorId,deceretorName,deceretorEmail,bookingId}=req.body;
+    //   id = req.params.id;
+    //   const query = {_id: new ObjectId(id)};
+    //   const updateDoc = {
+    //     $set:{
+    //       workingStatus:'decorator_assigned',
+    //       deceretorId: deceretorId,
+    //       deceretorName: deceretorName,
+    //       deceretorEmail: deceretorEmail,
+
+
+    //     }
+    //   }
+    //   const result = await bookingCollection.updateOne(query,updateDoc);
+
+
+    //   const decoratorQuery = {_id: new ObjectId(deceretorId)};
+    //   const decoratorUpdateDoc = {
+    //     $set:{
+    //       deceretorWorkingStatus:'in_delivery'
+    //     }
+    //   }
+    //   const decoratorResult = await decoratorCollection.updateOne(decoratorQuery,decoratorUpdateDoc);
+    //  res.send(decoratorResult)
+
+    // });
+
     app.patch('/booking/:id', async (req, res) => {
       const bookingId = req.params.id;
-      const { bookedDate, squareFeet, finalCost } = req.body;
+      const {
+        bookedDate,
+        squareFeet,
+        finalCost,
+        deceretorId,
+        deceretorName,
+        deceretorEmail
+      } = req.body;
 
-      // Basic presence
-      if (!bookedDate) {
-        console.error('Patch error: bookedDate missing in request body', req.body);
-        return res.status(400).json({ error: "Booked date is required." });
+      // 1️⃣ Validate bookedDate if provided
+      if (bookedDate) {
+        const newDate = new Date(bookedDate);
+        if (isNaN(newDate.getTime())) {
+          return res.status(400).json({ error: "Invalid bookedDate format. Use YYYY-MM-DD." });
+        }
+
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        if (newDate < today) {
+          return res.status(400).json({ error: "Booked date must be in the future." });
+        }
       }
 
-      // Ensure date is parseable
-      const newDate = new Date(bookedDate);
-      if (isNaN(newDate.getTime())) {
-        console.error('Patch error: invalid bookedDate format', bookedDate);
-        return res.status(400).json({ error: "Invalid bookedDate format. Use YYYY-MM-DD." });
-      }
-
-      // Optional: ensure future date
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
-      if (newDate < today) {
-        console.error('Patch error: bookedDate is in the past', bookedDate);
-        return res.status(400).json({ error: "Booked date must be in the future." });
-      }
-
-      // Validate numeric fields if provided
+      // 2️⃣ Validate numeric fields
       const sf = squareFeet !== undefined ? Number(squareFeet) : undefined;
       const fc = finalCost !== undefined ? Number(finalCost) : undefined;
 
@@ -272,31 +397,45 @@ async function run() {
       }
 
       try {
-        const updateDoc = {
-          $set: {
-            bookedDate,
-          }
-        };
+        // 3️⃣ Update booking document
+        const updateDoc = { $set: {} };
+        if (bookedDate) updateDoc.$set.bookedDate = bookedDate;
         if (sf !== undefined) updateDoc.$set.squareFeet = sf;
         if (fc !== undefined) updateDoc.$set.finalCost = fc;
 
-        console.log('Patch request for bookingId:', bookingId, 'update:', updateDoc.$set);
+        // Decorator assignment
+        if (deceretorId) {
+          updateDoc.$set.workingStatus = 'decorator_assigned';
+          updateDoc.$set.deceretorId = deceretorId;
+          updateDoc.$set.deceretorName = deceretorName;
+          updateDoc.$set.deceretorEmail = deceretorEmail;
+        }
 
         const result = await bookingCollection.updateOne(
           { _id: new ObjectId(bookingId) },
           updateDoc
         );
 
-        if (result.modifiedCount > 0) {
-          return res.json({ modifiedCount: result.modifiedCount });
-        } else {
-          return res.status(404).json({ error: "Booking not found or no changes made." });
+        if (result.matchedCount === 0) {
+          return res.status(404).json({ error: "Booking not found." });
         }
+
+        // 4️⃣ Update decorator status if assigned
+        let decoratorResult = null;
+        if (deceretorId) {
+          decoratorResult = await decoratorCollection.updateOne(
+            { _id: new ObjectId(deceretorId) },
+            { $set: { deceretorWorkingStatus: 'in_delivery' } }
+          );
+        }
+
+        res.json({ bookingUpdated: result.modifiedCount, decoratorUpdated: decoratorResult ? decoratorResult.modifiedCount : 0 });
       } catch (error) {
         console.error('Patch exception:', error);
         return res.status(500).json({ error: "Internal server error." });
       }
     });
+
 
 
     // delete Booking 
@@ -458,12 +597,7 @@ async function run() {
     })
 
 
-    // decorator related API 
-    app.get('/decorator', async (req, res) => {
-      const result = await decoratorCollection.find().toArray()
 
-      res.send(result)
-    })
 
 
 
