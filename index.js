@@ -77,6 +77,22 @@ async function run() {
     const decoratorCollection = db.collection('decorator');
 
 
+
+    // middle admin before allowing admin activity
+    // must be used after verifyFBToken middleware
+    const verifyAdmin = async (req, res, next) => {
+      const email = req.decoded_email;
+      const query = { email };
+      const user = await userCollections.findOne(query);
+
+      if (!user || user.role !== 'admin') {
+        return res.status(403).send({ message: 'forbidden access' });
+      }
+
+      next();
+    }
+
+
     // User Related API 
     app.post('/users', async (req, res) => {
       const user = req.body;
@@ -339,65 +355,87 @@ async function run() {
 
     // payment status paid 
     app.patch('/payment-success', async (req, res) => {
-      const sessionId = req.query.session_id
-      const session = await stripe.checkout.sessions.retrieve(sessionId)
-      const transactionId = session.payment_intent
-      query = { transactionId: transactionId }
-      const existingPayment = await paymentCollections.findOne(query);
-      if (existingPayment) {
-        return res.send({
-          success: true,
-          message: 'Payment already processed',
-          transactionId: transactionId,
-          trackingId: existingPayment.trackingId
-        });
-      }
+      try {
+        const sessionId = req.query.session_id;
+        if (!sessionId) return res.status(400).send({ success: false, message: "Missing session_id" });
 
+        const session = await stripe.checkout.sessions.retrieve(sessionId);
+        const transactionId = session.payment_intent;
 
-      console.log('session retrive', session)
-      const trackingId = generateTrackingId()
-      if (session.payment_status === 'paid') {
-        const id = session.metadata.parcelId
-        const query = { _id: new ObjectId(id) }
-        const update = {
+        // Duplicate check
+        const existingPayment = await paymentCollections.findOne({ transactionId });
+        if (existingPayment) {
+          return res.send({
+            success: true,
+            message: 'Payment already processed',
+            transactionId,
+            trackingId: existingPayment.trackingId
+          });
+        }
+
+        if (session.payment_status !== 'paid') return res.send({ success: false, message: "Payment not completed" });
+        if (!session.metadata?.parcelId) return res.status(400).send({ success: false, message: "Missing metadata" });
+
+        const parcelId = session.metadata.parcelId;
+        const trackingId = generateTrackingId();
+
+        // Safe query
+        const query = ObjectId.isValid(parcelId)
+          ? { _id: new ObjectId(parcelId) }
+          : { _id: parcelId };
+
+        const updateResult = await bookingCollection.updateOne(query, {
           $set: {
             paymentStatus: 'paid',
-            trackingId: trackingId,
-
+            workingStatus: 'pending-pickup',
+            trackingId
           }
-        }
-        const result = await bookingCollection.updateOne(query, update)
-        const payment = {
+        });
+
+        console.log("UpdateResult:", updateResult);
+
+        const paymentData = {
           amount: session.amount_total / 100,
           currency: session.currency,
           customerEmail: session.customer_email,
-          parcelId: session.metadata.parcelId,
-          ParcelName: session.metadata.parcelName,
-          transactionId: session.payment_intent,
+          parcelId,
+          parcelName: session.metadata.parcelName,
+          transactionId,
           paymentStatus: session.payment_status,
           paidAt: new Date(),
-          trackingId: trackingId,
+          trackingId,
+          workingStatus: 'pending-pickup', // <-- fixed here
+        };
 
-        }
-        if (session.payment_status === 'paid') {
-          const resultPayment = await paymentCollections.insertOne(payment)
-          res.send({ success: true, transactionId: session.payment_intent, modifyParcel: result, trackingId: trackingId, paymentInfo: resultPayment })
 
-        }
+        const paymentInsert = await paymentCollections.insertOne(paymentData);
 
+        return res.send({
+          success: true,
+          message: "Payment processed successfully",
+          transactionId,
+          trackingId,
+          modifyParcel: updateResult,
+          paymentInfo: paymentInsert
+        });
+
+      } catch (err) {
+        console.error("Payment Success Handler Error:", err);
+        return res.status(500).send({ success: false, message: "Server error" });
       }
-      res.send({ success: false })
-    })
-
-
-// User Related API 
-    app.get('/users',verifyFbToken, async (req, res) => {
-    const cursor=userCollections.find();
-    const result=await cursor.toArray();
-    res.send(result);
     });
 
-    app.get('/users/:email/role', async (req, res) => {
+
+
+
+    // User Related API 
+    app.get('/users', verifyFbToken, async (req, res) => {
+      const cursor = userCollections.find();
+      const result = await cursor.toArray();
+      res.send(result);
+    });
+
+    app.get('/users/:email/role', verifyFbToken, async (req, res) => {
       const email = req.params.email;
       const query = { email };
       const user = await userCollections.findOne(query);
@@ -406,7 +444,7 @@ async function run() {
 
 
     // MAke Admin 
-    app.patch('/users/:id/role', async (req, res) => {
+    app.patch('/users/:id/role', verifyFbToken, verifyAdmin, async (req, res) => {
       const id = req.params.id;
       const roleInfo = req.body;
       const query = { _id: new ObjectId(id) };
