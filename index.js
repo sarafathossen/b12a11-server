@@ -75,6 +75,7 @@ async function run() {
     const servicesCollection = db.collection('services');
     const bookingCollection = db.collection('booking');
     const decoratorCollection = db.collection('decorator');
+    const trackingCollection = db.collection('tracking');
 
 
 
@@ -90,6 +91,17 @@ async function run() {
       }
 
       next();
+    }
+
+    const logTracking = async (trackingId, status) => {
+      const log = {
+        trackingId,
+        status,
+        details: status.split('_').join(' '),
+        createdAt: new Date()
+      }
+      const result = await trackingCollection.insertOne(log);
+      return result;
     }
 
 
@@ -212,6 +224,9 @@ async function run() {
     // Booking Related API 
     app.post('/booking', async (req, res) => {
       const booking = req.body;
+      const trackingId = generateTrackingId()
+      booking.trackingId = trackingId
+      logTracking(trackingId, 'booking_placed')
       const result = await bookingCollection.insertOne(booking);
       res.send(result);
     })
@@ -233,30 +248,69 @@ async function run() {
       const result = await bookingCollection.find(query, options).toArray();
       res.send(result);
     });
+
+    // app.patch('/booking/:id/workingStatus', async (req, res) => {
+    //   try {
+    //     const { workingStatus, deceretorId, trackingId } = req.body;
+
+    //     const query = { _id: new ObjectId(req.params.id) };
+    //     const updatedDoc = { $set: { workingStatus } };
+
+    //     // Update decorator if work finished
+    //     if (workingStatus === "finished_work" && deceretorId) {
+    //       const decoratorResult = await decoratorCollection.updateOne(
+    //         { _id: new ObjectId(deceretorId) },
+    //         { $set: { deceretorWorkingStatus: 'available' } }
+    //       );
+    //       console.log("Decorator updated:", decoratorResult.modifiedCount);
+    //     }
+
+    //     const result = await bookingCollection.updateOne(query, updatedDoc);
+
+    //     logTracking(trackingId, workingStatus)
+    //     res.send(result);
+
+    //   } catch (error) {
+    //     console.error("PATCH ERROR:", error);
+    //     res.status(500).send({ error: true, message: error.message });
+    //   }
+    // });
+
+
     app.patch('/booking/:id/workingStatus', async (req, res) => {
       try {
-        const { workingStatus, deceretorId } = req.body;
+        const { workingStatus, deceretorId, trackingId } = req.body;
 
         const query = { _id: new ObjectId(req.params.id) };
-        const updatedDoc = { $set: { workingStatus } };
+        const booking = await bookingCollection.findOne(query);
+        if (!booking) return res.status(404).send({ error: true, message: "Booking not found" });
 
-        // Update decorator if work finished
-        if (workingStatus === "finished_work" && deceretorId) {
-          const decoratorResult = await decoratorCollection.updateOne(
-            { _id: new ObjectId(deceretorId) },
-            { $set: { deceretorWorkingStatus: 'available' } }
-          );
-          console.log("Decorator updated:", decoratorResult.modifiedCount);
-        }
+        const finalTrackingId = booking.trackingId || trackingId;
+
+        const updatedDoc = {
+          $set: {
+            workingStatus,
+            deceretorId: deceretorId || booking.deceretorId
+          }
+        };
 
         const result = await bookingCollection.updateOne(query, updatedDoc);
-        res.send(result);
 
+        // Tracking log
+        logTracking(finalTrackingId, workingStatus);
+
+        res.send({ modifiedCount: result.modifiedCount });
       } catch (error) {
         console.error("PATCH ERROR:", error);
         res.status(500).send({ error: true, message: error.message });
       }
     });
+
+
+
+
+
+
 
 
     app.get('/booking/decorator', async (req, res) => {
@@ -265,11 +319,11 @@ async function run() {
       if (deceretorEmail) {
         query.deceretorEmail = deceretorEmail;
       }
-      if (workingStatus !=='finished_work') {
+      if (workingStatus !== 'finished_work') {
         query.workingStatus = { $nin: ['finished_work'] };
       }
-      else{
-        query.workingStatus=workingStatus
+      else {
+        query.workingStatus = workingStatus
       }
       const cursor = bookingCollection.find(query);
       const result = await cursor.toArray();
@@ -413,10 +467,11 @@ async function run() {
         finalCost,
         deceretorId,
         deceretorName,
-        deceretorEmail
+        deceretorEmail,
+        trackingId,
       } = req.body;
 
-      // 1️⃣ Validate bookedDate if provided
+      // 1️⃣ Validate bookedDate
       if (bookedDate) {
         const newDate = new Date(bookedDate);
         if (isNaN(newDate.getTime())) {
@@ -437,18 +492,20 @@ async function run() {
       if (squareFeet !== undefined && (isNaN(sf) || sf < 0)) {
         return res.status(400).json({ error: "squareFeet must be a non-negative number." });
       }
+
       if (finalCost !== undefined && (isNaN(fc) || fc < 0)) {
         return res.status(400).json({ error: "finalCost must be a non-negative number." });
       }
 
       try {
-        // 3️⃣ Update booking document
+        // 3️⃣ Build update document
         const updateDoc = { $set: {} };
+
         if (bookedDate) updateDoc.$set.bookedDate = bookedDate;
         if (sf !== undefined) updateDoc.$set.squareFeet = sf;
         if (fc !== undefined) updateDoc.$set.finalCost = fc;
 
-        // Decorator assignment
+        // If decorator assigned → update booking fields
         if (deceretorId) {
           updateDoc.$set.workingStatus = 'decorator_assigned';
           updateDoc.$set.deceretorId = deceretorId;
@@ -456,6 +513,7 @@ async function run() {
           updateDoc.$set.deceretorEmail = deceretorEmail;
         }
 
+        // 4️⃣ Update booking document
         const result = await bookingCollection.updateOne(
           { _id: new ObjectId(bookingId) },
           updateDoc
@@ -465,8 +523,9 @@ async function run() {
           return res.status(404).json({ error: "Booking not found." });
         }
 
-        // 4️⃣ Update decorator status if assigned
+        // 5️⃣ Update decorator status if assigned
         let decoratorResult = null;
+
         if (deceretorId) {
           decoratorResult = await decoratorCollection.updateOne(
             { _id: new ObjectId(deceretorId) },
@@ -474,12 +533,21 @@ async function run() {
           );
         }
 
-        res.json({ bookingUpdated: result.modifiedCount, decoratorUpdated: decoratorResult ? decoratorResult.modifiedCount : 0 });
+        // tracking log
+        logTracking(trackingId, 'decorator_assigned');
+
+        // 6️⃣ Final Response (Option A)
+        return res.json({
+          modifiedCount: result.modifiedCount,   // 🔥 frontend expects this
+          decoratorUpdated: decoratorResult ? decoratorResult.modifiedCount : 0
+        });
+
       } catch (error) {
         console.error('Patch exception:', error);
         return res.status(500).json({ error: "Internal server error." });
       }
     });
+
 
 
 
@@ -538,6 +606,76 @@ async function run() {
 
 
     // payment status paid 
+    // app.patch('/payment-success', async (req, res) => {
+    //   try {
+    //     const sessionId = req.query.session_id;
+    //     if (!sessionId) return res.status(400).send({ success: false, message: "Missing session_id" });
+
+    //     const session = await stripe.checkout.sessions.retrieve(sessionId);
+    //     const transactionId = session.payment_intent;
+
+    //     // Duplicate check
+    //     const existingPayment = await paymentCollections.findOne({ transactionId });
+    //     if (existingPayment) {
+    //       return res.send({
+    //         success: true,
+    //         message: 'Payment already processed',
+    //         transactionId,
+    //         trackingId: existingPayment.trackingId
+    //       });
+    //     }
+
+    //     if (session.payment_status !== 'paid') return res.send({ success: false, message: "Payment not completed" });
+    //     if (!session.metadata?.parcelId) return res.status(400).send({ success: false, message: "Missing metadata" });
+
+    //     const parcelId = session.metadata.parcelId;
+    //     const trackingId = generateTrackingId();
+
+    //     // Safe query
+    //     const query = ObjectId.isValid(parcelId)
+    //       ? { _id: new ObjectId(parcelId) }
+    //       : { _id: parcelId };
+
+    //     const updateResult = await bookingCollection.updateOne(query, {
+    //       $set: {
+    //         paymentStatus: 'paid',
+    //         workingStatus: 'pending-pickup',
+    //         trackingId
+    //       }
+    //     });
+
+    //     console.log("UpdateResult:", updateResult);
+
+    //     const paymentData = {
+    //       amount: session.amount_total / 100,
+    //       currency: session.currency,
+    //       customerEmail: session.customer_email,
+    //       parcelId,
+    //       parcelName: session.metadata.parcelName,
+    //       transactionId,
+    //       paymentStatus: session.payment_status,
+    //       paidAt: new Date(),
+    //       trackingId,
+    //       workingStatus: 'pending-pickup', // <-- fixed here
+    //     };
+
+
+    //     const paymentInsert = await paymentCollections.insertOne(paymentData);
+    //     // logTracking(trackingId);
+    //     return res.send({
+    //       success: true,
+    //       message: "Payment processed successfully",
+    //       transactionId,
+    //       trackingId,
+    //       modifyParcel: updateResult,
+    //       paymentInfo: paymentInsert
+    //     });
+
+    //   } catch (err) {
+    //     console.error("Payment Success Handler Error:", err);
+    //     return res.status(500).send({ success: false, message: "Server error" });
+    //   }
+    // });
     app.patch('/payment-success', async (req, res) => {
       try {
         const sessionId = req.query.session_id;
@@ -572,7 +710,7 @@ async function run() {
           $set: {
             paymentStatus: 'paid',
             workingStatus: 'pending-pickup',
-            trackingId
+            trackingId: trackingId
           }
         });
 
@@ -593,7 +731,7 @@ async function run() {
 
 
         const paymentInsert = await paymentCollections.insertOne(paymentData);
-
+        logTracking(trackingId, 'pending-pickup');
         return res.send({
           success: true,
           message: "Payment processed successfully",
@@ -789,6 +927,15 @@ async function run() {
 
       }
       res.send({ success: false })
+    })
+
+
+    // Tracking Realted API 
+    app.get('/trackings/:trackingId/logs', async (req, res) => {
+      const trackingId = req.params.trackingId
+      const query = { trackingId }
+      const result = await trackingCollection.find(query).toArray()
+      res.send(result)
     })
 
     // MongoDB test ping
