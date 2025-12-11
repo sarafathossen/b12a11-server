@@ -233,6 +233,22 @@ async function run() {
       res.send(result);
     });
 
+    app.get('/booking/decorator', async (req, res) => {
+      const {deceretorEmail, workingStatus} = req.query;
+      const query = {};
+      if(deceretorEmail){
+        query.deceretorEmail = deceretorEmail;
+      }
+      if(workingStatus){
+        query.workingStatus = workingStatus;
+      }
+      const cursor = bookingCollection.find(query);
+      const result = await cursor.toArray();
+      res.send(result);
+
+    })
+      
+
     // booking update
     // booking update (only bookedDate)
     // app.patch('/booking/:id', async (req, res) => {
