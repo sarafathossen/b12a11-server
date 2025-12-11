@@ -216,7 +216,8 @@ async function run() {
       res.send(result);
     })
 
-    // my booking 
+    // my booking  
+
     app.get('/booking', async (req, res) => {
       const query = {};
       const { email, workingStatus } = req.query;
@@ -232,22 +233,50 @@ async function run() {
       const result = await bookingCollection.find(query, options).toArray();
       res.send(result);
     });
+    app.patch('/booking/:id/workingStatus', async (req, res) => {
+      try {
+        const { workingStatus, deceretorId } = req.body;
+
+        const query = { _id: new ObjectId(req.params.id) };
+        const updatedDoc = { $set: { workingStatus } };
+
+        // Update decorator if work finished
+        if (workingStatus === "finished_work" && deceretorId) {
+          const decoratorResult = await decoratorCollection.updateOne(
+            { _id: new ObjectId(deceretorId) },
+            { $set: { deceretorWorkingStatus: 'available' } }
+          );
+          console.log("Decorator updated:", decoratorResult.modifiedCount);
+        }
+
+        const result = await bookingCollection.updateOne(query, updatedDoc);
+        res.send(result);
+
+      } catch (error) {
+        console.error("PATCH ERROR:", error);
+        res.status(500).send({ error: true, message: error.message });
+      }
+    });
+
 
     app.get('/booking/decorator', async (req, res) => {
-      const {deceretorEmail, workingStatus} = req.query;
+      const { deceretorEmail, workingStatus } = req.query;
       const query = {};
-      if(deceretorEmail){
+      if (deceretorEmail) {
         query.deceretorEmail = deceretorEmail;
       }
-      if(workingStatus){
-        query.workingStatus = workingStatus;
+      if (workingStatus !=='finished_work') {
+        query.workingStatus = { $nin: ['finished_work'] };
+      }
+      else{
+        query.workingStatus=workingStatus
       }
       const cursor = bookingCollection.find(query);
       const result = await cursor.toArray();
       res.send(result);
 
     })
-      
+
 
     // booking update
     // booking update (only bookedDate)
