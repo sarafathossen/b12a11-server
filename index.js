@@ -851,6 +851,7 @@ async function run() {
         metadata: {
           parcelId: paymentInfo.parcelId,
           parcelName: paymentInfo.parcelName,
+          trackingId:paymentInfo.trackingId,
 
 
         },
@@ -897,14 +898,20 @@ async function run() {
       const sessionId = req.query.session_id
       const session = await stripe.checkout.sessions.retrieve(sessionId)
       console.log('session retrive', session)
-      const trackingId = generateTrackingId()
+
+
+
+      const trackingId = session.metadata.trackingId;
+
+
+
       if (session.payment_status === 'paid') {
         const id = session.metadata.parcelId
         const query = { _id: new ObjectId(id) }
         const update = {
           $set: {
             paymentStatus: 'paid',
-            trackingId: trackingId,
+           
           }
         }
         const result = await parcelsCollections.updateOne(query, update)
