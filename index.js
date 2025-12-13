@@ -209,10 +209,43 @@ async function run() {
     // 📦 PARCEL API
     // Get All Services 
     app.get('/services', async (req, res) => {
-      const result = await servicesCollection.find().toArray()
+      const result = await servicesCollection.find().sort({ createdAt: -1 }).toArray();
+      res.send(result);
+    });
 
-      res.send(result)
-    })
+    app.delete("/services/:id", async (req, res) => {
+      try {
+        const id = req.params.id;
+        const result = await servicesCollection.deleteOne({ _id: new ObjectId(id) });
+        if (result.deletedCount === 1) {
+          res.send({ message: "Service deleted successfully" });
+        } else {
+          res.status(404).send({ message: "Service not found" });
+        }
+      } catch (err) {
+        res.status(500).send({ message: err.message });
+      }
+    });
+
+    app.patch("/services/:id", async (req, res) => {
+      try {
+        const id = req.params.id;
+        const updatedData = req.body;
+        const result = await servicesCollection.updateOne(
+          { _id: new ObjectId(id) },
+          { $set: updatedData }
+        );
+        if (result.modifiedCount === 1) {
+          res.send({ message: "Service updated successfully" });
+        } else {
+          res.status(404).send({ message: "Service not found or no changes" });
+        }
+      } catch (err) {
+        res.status(500).send({ message: err.message });
+      }
+    });
+
+
 
     app.get('/services/:id', async (req, res) => {
       const id = req.params.id;
@@ -550,6 +583,8 @@ async function run() {
 
 
     // Service Relater API 
+
+    // Service Create 
     app.post('/service', async (req, res) => {
       try {
         const booking = req.body;
