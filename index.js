@@ -549,6 +549,34 @@ async function run() {
     });
 
 
+    // Service Relater API 
+    app.post('/service', async (req, res) => {
+      try {
+        const booking = req.body;
+
+        if (!booking.serviceId || !booking.userEmail) {
+          return res.status(400).send({ message: 'Missing required fields' });
+        }
+
+        const newBooking = {
+          ...booking,
+          status: booking.status || 'pending',
+          createdAt: new Date(),
+        };
+
+        const result = await servicesCollection.insertOne(newBooking);
+
+        res.send({
+          success: true,
+          insertedId: result.insertedId,
+        });
+      } catch (error) {
+        res.status(500).send({ message: 'Failed to create booking' });
+      }
+    });
+
+
+
 
 
     // delete Booking 
@@ -851,7 +879,7 @@ async function run() {
         metadata: {
           parcelId: paymentInfo.parcelId,
           parcelName: paymentInfo.parcelName,
-          trackingId:paymentInfo.trackingId,
+          trackingId: paymentInfo.trackingId,
 
 
         },
@@ -865,34 +893,34 @@ async function run() {
 
 
     // Old 
-    app.post('/create-checkout-session', async (req, res) => {
-      const paymentInfo = req.body;
-      const amount = parseInt(paymentInfo.cost) * 100;
+    // app.post('/create-checkout-session', async (req, res) => {
+    //   const paymentInfo = req.body;
+    //   const amount = parseInt(paymentInfo.cost) * 100;
 
-      const session = await stripe.checkout.sessions.create({
-        line_items: [
-          {
-            price_data: {
-              currency: 'USD',
-              unit_amount: amount,
-              product_data: {
-                name: paymentInfo.parcelName,
-              },
-            },
-            quantity: 1,
-          },
-        ],
-        customer_email: paymentInfo.senderEmail,
-        mode: 'payment',
-        metadata: {
-          parcelId: paymentInfo.parcelId,
-        },
-        success_url: `${process.env.SITE_DOMAIN}/dashboard/payment-success`,
-        cancel_url: `${process.env.SITE_DOMAIN}/dashboard/payment-cancelled`,
-      });
+    //   const session = await stripe.checkout.sessions.create({
+    //     line_items: [
+    //       {
+    //         price_data: {
+    //           currency: 'USD',
+    //           unit_amount: amount,
+    //           product_data: {
+    //             name: paymentInfo.parcelName,
+    //           },
+    //         },
+    //         quantity: 1,
+    //       },
+    //     ],
+    //     customer_email: paymentInfo.senderEmail,
+    //     mode: 'payment',
+    //     metadata: {
+    //       parcelId: paymentInfo.parcelId,
+    //     },
+    //     success_url: `${process.env.SITE_DOMAIN}/dashboard/payment-success`,
+    //     cancel_url: `${process.env.SITE_DOMAIN}/dashboard/payment-cancelled`,
+    //   });
 
-      res.send({ url: session.url });
-    });
+    //   res.send({ url: session.url });
+    // });
 
     app.patch('/payment-success', async (req, res) => {
       const sessionId = req.query.session_id
@@ -911,7 +939,7 @@ async function run() {
         const update = {
           $set: {
             paymentStatus: 'paid',
-           
+
           }
         }
         const result = await parcelsCollections.updateOne(query, update)
@@ -933,9 +961,55 @@ async function run() {
         }
 
       }
-      res.send({ success: false })
+      return res.send({ success: false })
     })
 
+
+    // Booking Count API 
+    app.get('/booking/working-status/status', async (req, res) => {
+      const pipeline = [
+        {
+          $facet: {
+            // 🔹 Working Status wise count
+            workingStatus: [
+              {
+                $group: {
+                  _id: '$workingStatus',
+                  count: { $sum: 1 }
+                }
+              },
+              {
+                $project: {
+                  _id: 0,
+                  workingStatus: '$_id',
+                  count: 1
+                }
+              }
+            ],
+
+            // 🔹 Category wise count
+            category: [
+              {
+                $group: {
+                  _id: '$category',
+                  count: { $sum: 1 }
+                }
+              },
+              {
+                $project: {
+                  _id: 0,
+                  category: '$_id',
+                  count: 1
+                }
+              }
+            ]
+          }
+        }
+      ];
+
+      const result = await bookingCollection.aggregate(pipeline).toArray();
+      res.send(result[0]); // 🔥 খুব গুরুত্বপূর্ণ
+    });
 
     // Tracking Realted API 
     app.get('/trackings/:trackingId/logs', async (req, res) => {
