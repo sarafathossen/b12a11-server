@@ -230,20 +230,42 @@ async function run() {
     app.patch("/services/:id", async (req, res) => {
       try {
         const id = req.params.id;
-        const updatedData = req.body;
+
+        // ID যাচাই
+        if (!ObjectId.isValid(id)) {
+          return res.status(400).send({ message: "Invalid service ID" });
+        }
+
+        // শুধু অনুমোদিত ফিল্ড আপডেট হবে
+        const allowedFields = ["name", "image", "price", "category", "description", "longDescription", "rating", "reviews", "duration", "available"];
+        const updateFields = {};
+        allowedFields.forEach(field => {
+          if (req.body[field] !== undefined) {
+            updateFields[field] = req.body[field];
+          }
+        });
+
+        if (Object.keys(updateFields).length === 0) {
+          return res.status(400).send({ message: "No valid fields to update" });
+        }
+
         const result = await servicesCollection.updateOne(
           { _id: new ObjectId(id) },
-          { $set: updatedData }
+          { $set: updateFields }
         );
+
         if (result.modifiedCount === 1) {
           res.send({ message: "Service updated successfully" });
         } else {
           res.status(404).send({ message: "Service not found or no changes" });
         }
       } catch (err) {
+        console.error("Error updating service:", err);
         res.status(500).send({ message: err.message });
       }
     });
+
+
 
 
 
