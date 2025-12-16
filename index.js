@@ -14,8 +14,9 @@ const crypto = require("crypto");
 
 const admin = require("firebase-admin");
 
-const serviceAccount = require("./decoration-booking-system-firebase-adminsdk-fbsvc-81831d7ef6.json");
-// const { use } = require('react');
+
+const decoded = Buffer.from(process.env.FB_SERVICE_KEY, 'base64').toString('utf8')
+const serviceAccount = JSON.parse(decoded);
 
 admin.initializeApp({
   credential: admin.credential.cert(serviceAccount)
@@ -66,7 +67,7 @@ const client = new MongoClient(uri, {
 
 async function run() {
   try {
-    await client.connect();
+    // await client.connect();
 
     const db = client.db('decoration_booking_system');
     const userCollections = db.collection('users');
@@ -92,6 +93,17 @@ async function run() {
 
       next();
     }
+    const verifyDecorator = async (req, res, next) => {
+      const email = req.decoded_email;
+      const query = { email };
+      const user = await userCollections.findOne(query);
+
+      if (!user || user.role !== 'decorator') {
+        return res.status(403).send({ message: 'forbidden access' });
+      }
+
+      next();
+    }
 
     const logTracking = async (trackingId, status) => {
       const log = {
@@ -106,7 +118,7 @@ async function run() {
 
 
     // User Related API 
-    app.post('/users', async (req, res) => {
+    app.post('/users', verifyFbToken,verifyAdmin, async (req, res) => {
       const user = req.body;
       user.role = 'user';
       user.createdAt = new Date();
@@ -120,7 +132,7 @@ async function run() {
     });
 
     // Deceretor Related API 
-    app.post('/decorator', async (req, res) => {
+    app.post('/decorator', verifyFbToken,verifyAdmin, async (req, res) => {
       const decorator = req.body;
       decorator.role = 'pending';
       decorator.createdAt = new Date();
@@ -151,10 +163,21 @@ async function run() {
       res.send(result);
     });
 
+    // Delete Deceretor 
+    app.delete('/decorator/:id',verifyFbToken,verifyAdmin, async (req, res) => {
+      const id = req.params.id;
+
+      const result = await decoratorCollection.deleteOne({
+        _id: new ObjectId(id)
+      });
+
+      res.send(result);
+    });
+
 
 
     // Aproove Deceretor API
-    app.patch('/decorator/:id', verifyFbToken, async (req, res) => {
+    app.patch('/decorator/:id', verifyFbToken,verifyAdmin, async (req, res) => {
       try {
         const status = req.body.role;
         const id = req.params.id;
@@ -189,6 +212,24 @@ async function run() {
         res.status(500).send({ message: 'Server Error' });
       }
     });
+    // Update decorator workingStatus
+    app.patch('/decorator/:id/workingStatus', verifyFbToken, async (req, res) => {
+      try {
+        const id = req.params.id;
+        const { deceretorWorkingStatus } = req.body;
+
+        const query = { _id: new ObjectId(id) };
+        const update = { $set: { deceretorWorkingStatus } };
+
+        const result = await decoratorCollection.updateOne(query, update);
+
+        res.send(result);
+      } catch (err) {
+        console.error(err);
+        res.status(500).send({ message: 'Server Error' });
+      }
+    });
+
 
 
     // decorator related API 
@@ -204,8 +245,6 @@ async function run() {
 
 
 
-
-
     // 📦 PARCEL API
     // Get All Services 
     app.get('/services', async (req, res) => {
@@ -213,7 +252,7 @@ async function run() {
       res.send(result);
     });
 
-    app.delete("/services/:id", async (req, res) => {
+    app.delete("/services/:id", verifyFbToken,verifyAdmin, async (req, res) => {
       try {
         const id = req.params.id;
         const result = await servicesCollection.deleteOne({ _id: new ObjectId(id) });
@@ -227,7 +266,7 @@ async function run() {
       }
     });
 
-    app.patch("/services/:id", async (req, res) => {
+    app.patch("/services/:id", verifyFbToken,verifyAdmin, async (req, res) => {
       try {
         const id = req.params.id;
 
@@ -277,7 +316,7 @@ async function run() {
     });
 
     // Booking Related API 
-    app.post('/booking', async (req, res) => {
+    app.post('/booking', verifyFbToken, async (req, res) => {
       const booking = req.body;
       const trackingId = generateTrackingId()
       booking.trackingId = trackingId
@@ -288,21 +327,47 @@ async function run() {
 
     // my booking  
 
-    app.get('/booking', async (req, res) => {
+    app.get('/booking',verifyFbToken, async (req, res) => {
       const query = {};
-      const { email, workingStatus } = req.query;
+      const { email, deceretorEmail, workingStatus } = req.query;
 
       if (email) {
-        query.userEmail = email;
+        query.userEmail = email; // logged-in user email
+      }
+      if (deceretorEmail) {
+        query.deceretorEmail = deceretorEmail; // decorator email
       }
       if (workingStatus) {
-        query.workingStatus = workingStatus
+        query.workingStatus = workingStatus;
       }
 
-      const options = { sort: { createdAt: -1 } };
-      const result = await bookingCollection.find(query, options).toArray();
+      // MongoDB query + sort
+      const result = await bookingCollection
+        .find(query)
+        .sort({ createdAt: -1 }) // latest booking first
+        .toArray();
+
       res.send(result);
     });
+
+    // Get only finished bookings
+
+    app.get('/booking/finished', async (req, res) => {
+      try {
+        const query = { workingStatus: "finished" };
+
+        const result = await bookingCollection
+          .find(query)
+          .sort({ createdAt: -1 }) // latest first
+          .toArray();
+
+        res.send(result);
+      } catch (error) {
+        res.status(500).send({ error: 'Failed to fetch finished bookings' });
+      }
+    });
+
+
 
     // app.patch('/booking/:id/workingStatus', async (req, res) => {
     //   try {
@@ -332,7 +397,7 @@ async function run() {
     // });
 
 
-    app.patch('/booking/:id/workingStatus', async (req, res) => {
+    app.patch('/booking/:id/workingStatus', verifyFbToken, async (req, res) => {
       try {
         const { workingStatus, deceretorId, trackingId } = req.body;
 
@@ -363,11 +428,6 @@ async function run() {
 
 
 
-
-
-
-
-
     app.get('/booking/decorator', async (req, res) => {
       const { deceretorEmail, workingStatus } = req.query;
       const query = {};
@@ -387,134 +447,9 @@ async function run() {
     })
 
 
-    // booking update
-    // booking update (only bookedDate)
-    // app.patch('/booking/:id', async (req, res) => {
-    //   const bookingId = req.params.id; // URL থেকে id
-    //   const { bookedDate } = req.body;
+  
 
-    //   if (!bookedDate) {
-    //     return res.status(400).json({ error: "Booked date is required." });
-    //   }
-
-    //   // Validate future date only
-    //   const today = new Date();
-    //   const parts = bookedDate.split("-"); // "DD-MM-YYYY"
-    //   const newDate = new Date(`${parts[2]}-${parts[1]}-${parts[0]}`);
-
-    //   if (newDate < today.setHours(0, 0, 0, 0)) {
-    //     return res.status(400).json({ error: "Booked date must be in the future." });
-    //   }
-
-    //   try {
-    //     const result = await bookingCollection.updateOne(
-    //       { _id: new ObjectId(bookingId) }, // ObjectId হিসেবে convert
-    //       { $set: { bookedDate } } // শুধু bookedDate আপডেট হবে
-    //     );
-
-    //     if (result.modifiedCount > 0) {
-    //       res.json({ modifiedCount: result.modifiedCount });
-    //     } else {
-    //       res.status(404).json({ error: "Booking not found or no changes made." });
-    //     }
-    //   } catch (error) {
-    //     console.error(error);
-    //     res.status(500).json({ error: "Internal server error." });
-    //   }
-    // });
-    // app.patch('/booking/:id', async (req, res) => {
-    //   const bookingId = req.params.id;
-    //   const { bookedDate, squareFeet, finalCost } = req.body;
-
-    //   // Basic presence
-    //   if (!bookedDate) {
-    //     console.error('Patch error: bookedDate missing in request body', req.body);
-    //     return res.status(400).json({ error: "Booked date is required." });
-    //   }
-
-    //   // Ensure date is parseable
-    //   const newDate = new Date(bookedDate);
-    //   if (isNaN(newDate.getTime())) {
-    //     console.error('Patch error: invalid bookedDate format', bookedDate);
-    //     return res.status(400).json({ error: "Invalid bookedDate format. Use YYYY-MM-DD." });
-    //   }
-
-    //   // Optional: ensure future date
-    //   const today = new Date();
-    //   today.setHours(0, 0, 0, 0);
-    //   if (newDate < today) {
-    //     console.error('Patch error: bookedDate is in the past', bookedDate);
-    //     return res.status(400).json({ error: "Booked date must be in the future." });
-    //   }
-
-    //   // Validate numeric fields if provided
-    //   const sf = squareFeet !== undefined ? Number(squareFeet) : undefined;
-    //   const fc = finalCost !== undefined ? Number(finalCost) : undefined;
-
-    //   if (squareFeet !== undefined && (isNaN(sf) || sf < 0)) {
-    //     return res.status(400).json({ error: "squareFeet must be a non-negative number." });
-    //   }
-    //   if (finalCost !== undefined && (isNaN(fc) || fc < 0)) {
-    //     return res.status(400).json({ error: "finalCost must be a non-negative number." });
-    //   }
-
-    //   try {
-    //     const updateDoc = {
-    //       $set: {
-    //         bookedDate,
-    //         // deceretorWorkingStatus: 'available' // Reset to available on date change,
-    //       }
-    //     };
-    //     if (sf !== undefined) updateDoc.$set.squareFeet = sf;
-    //     if (fc !== undefined) updateDoc.$set.finalCost = fc;
-
-    //     console.log('Patch request for bookingId:', bookingId, 'update:', updateDoc.$set);
-
-    //     const result = await bookingCollection.updateOne(
-    //       { _id: new ObjectId(bookingId) },
-    //       updateDoc
-    //     );
-
-    //     if (result.modifiedCount > 0) {
-    //       return res.json({ modifiedCount: result.modifiedCount });
-    //     } else {
-    //       return res.status(404).json({ error: "Booking not found or no changes made." });
-    //     }
-    //   } catch (error) {
-    //     console.error('Patch exception:', error);
-    //     return res.status(500).json({ error: "Internal server error." });
-    //   }
-    // });
-
-    // app.patch('/booking/:id',async (req,res)=>{
-    //   const {deceretorId,deceretorName,deceretorEmail,bookingId}=req.body;
-    //   id = req.params.id;
-    //   const query = {_id: new ObjectId(id)};
-    //   const updateDoc = {
-    //     $set:{
-    //       workingStatus:'decorator_assigned',
-    //       deceretorId: deceretorId,
-    //       deceretorName: deceretorName,
-    //       deceretorEmail: deceretorEmail,
-
-
-    //     }
-    //   }
-    //   const result = await bookingCollection.updateOne(query,updateDoc);
-
-
-    //   const decoratorQuery = {_id: new ObjectId(deceretorId)};
-    //   const decoratorUpdateDoc = {
-    //     $set:{
-    //       deceretorWorkingStatus:'in_delivery'
-    //     }
-    //   }
-    //   const decoratorResult = await decoratorCollection.updateOne(decoratorQuery,decoratorUpdateDoc);
-    //  res.send(decoratorResult)
-
-    // });
-
-    app.patch('/booking/:id', async (req, res) => {
+    app.patch('/booking/:id',verifyFbToken, async (req, res) => {
       const bookingId = req.params.id;
       const {
         bookedDate,
@@ -526,41 +461,62 @@ async function run() {
         trackingId,
       } = req.body;
 
-      // 1️⃣ Validate bookedDate
-      if (bookedDate) {
-        const newDate = new Date(bookedDate);
-        if (isNaN(newDate.getTime())) {
-          return res.status(400).json({ error: "Invalid bookedDate format. Use YYYY-MM-DD." });
-        }
-
-        const today = new Date();
-        today.setHours(0, 0, 0, 0);
-        if (newDate < today) {
-          return res.status(400).json({ error: "Booked date must be in the future." });
-        }
-      }
-
-      // 2️⃣ Validate numeric fields
-      const sf = squareFeet !== undefined ? Number(squareFeet) : undefined;
-      const fc = finalCost !== undefined ? Number(finalCost) : undefined;
-
-      if (squareFeet !== undefined && (isNaN(sf) || sf < 0)) {
-        return res.status(400).json({ error: "squareFeet must be a non-negative number." });
-      }
-
-      if (finalCost !== undefined && (isNaN(fc) || fc < 0)) {
-        return res.status(400).json({ error: "finalCost must be a non-negative number." });
-      }
-
       try {
-        // 3️⃣ Build update document
+        // ===== 1️⃣ Validate bookedDate (DD-MM-YYYY) =====
+        let parsedDate = null;
+
+        if (bookedDate) {
+          const parts = bookedDate.split('-'); // DD-MM-YYYY
+
+          if (parts.length !== 3) {
+            return res.status(400).json({
+              error: "Invalid bookedDate format. Use DD-MM-YYYY."
+            });
+          }
+
+          const [day, month, year] = parts.map(Number);
+          parsedDate = new Date(year, month - 1, day);
+
+          if (isNaN(parsedDate.getTime())) {
+            return res.status(400).json({
+              error: "Invalid bookedDate value."
+            });
+          }
+
+          const today = new Date();
+          today.setHours(0, 0, 0, 0);
+
+          if (parsedDate < today) {
+            return res.status(400).json({
+              error: "Booked date must be today or a future date."
+            });
+          }
+        }
+
+        // ===== 2️⃣ Validate numeric fields =====
+        const sf = squareFeet !== undefined ? Number(squareFeet) : undefined;
+        const fc = finalCost !== undefined ? Number(finalCost) : undefined;
+
+        if (sf !== undefined && (isNaN(sf) || sf < 0)) {
+          return res.status(400).json({
+            error: "squareFeet must be a non-negative number."
+          });
+        }
+
+        if (fc !== undefined && (isNaN(fc) || fc < 0)) {
+          return res.status(400).json({
+            error: "finalCost must be a non-negative number."
+          });
+        }
+
+        // ===== 3️⃣ Build update document =====
         const updateDoc = { $set: {} };
 
-        if (bookedDate) updateDoc.$set.bookedDate = bookedDate;
+        if (bookedDate) updateDoc.$set.bookedDate = bookedDate; // keep DD-MM-YYYY
         if (sf !== undefined) updateDoc.$set.squareFeet = sf;
         if (fc !== undefined) updateDoc.$set.finalCost = fc;
 
-        // If decorator assigned → update booking fields
+        // decorator assign
         if (deceretorId) {
           updateDoc.$set.workingStatus = 'decorator_assigned';
           updateDoc.$set.deceretorId = deceretorId;
@@ -568,7 +524,7 @@ async function run() {
           updateDoc.$set.deceretorEmail = deceretorEmail;
         }
 
-        // 4️⃣ Update booking document
+        // ===== 4️⃣ Update booking =====
         const result = await bookingCollection.updateOne(
           { _id: new ObjectId(bookingId) },
           updateDoc
@@ -578,7 +534,7 @@ async function run() {
           return res.status(404).json({ error: "Booking not found." });
         }
 
-        // 5️⃣ Update decorator status if assigned
+        // ===== 5️⃣ Update decorator status =====
         let decoratorResult = null;
 
         if (deceretorId) {
@@ -588,10 +544,12 @@ async function run() {
           );
         }
 
-        // tracking log
-        logTracking(trackingId, 'decorator_assigned');
+        // ===== 6️⃣ Tracking log =====
+        if (trackingId && deceretorId) {
+          logTracking(trackingId, 'decorator_assigned');
+        }
 
-        // 6️⃣ Final Response (Option A)
+        // ===== 7️⃣ Final response =====
         return res.json({
           modifiedCount: result.modifiedCount,   // 🔥 frontend expects this
           decoratorUpdated: decoratorResult ? decoratorResult.modifiedCount : 0
@@ -607,7 +565,7 @@ async function run() {
     // Service Relater API 
 
     // Service Create 
-    app.post('/service', async (req, res) => {
+    app.post('/service',verifyFbToken,verifyAdmin, async (req, res) => {
       try {
         const booking = req.body;
 
@@ -637,7 +595,7 @@ async function run() {
 
 
     // delete Booking 
-    app.delete('/booking/:id', async (req, res) => {
+    app.delete('/booking/:id',verifyFbToken, async (req, res) => {
       const id = req.params.id;
       const query = { _id: new ObjectId(id) };
       const result = await bookingCollection.deleteOne(query);
@@ -645,10 +603,9 @@ async function run() {
     });
 
     // Payment API
-    app.post('/payment-checkout-session', async (req, res) => {
+    app.post('/payment-checkout-session',verifyFbToken, async (req, res) => {
       const paymentInfo = req.body;
 
-      // Ensure cost is number
       const amount = Number(paymentInfo.cost) * 100;
 
       const session = await stripe.checkout.sessions.create({
@@ -668,8 +625,9 @@ async function run() {
         metadata: {
           parcelId: paymentInfo.parcelId,
           parcelName: paymentInfo.parcelName,
+          trackingId: paymentInfo.trackingId || "",
         },
-        customer_email: paymentInfo.userEmail,
+        customer_email: paymentInfo.customerEmail, // ✅ Correct field
         success_url: `${process.env.SITE_DOMAIN}/dashboard/payment-success?session_id={CHECKOUT_SESSION_ID}`,
         cancel_url: `${process.env.SITE_DOMAIN}/dashboard/payment-cancelled`,
       });
@@ -678,16 +636,22 @@ async function run() {
     });
 
 
-    app.get('/payments', async (req, res) => {
+    app.get('/payments',verifyFbToken, async (req, res) => {
       const email = req.query.email;
       const query = {};
+
       if (email) {
         query.customerEmail = email;
-        const cursor = paymentCollections.find(query);
-        const result = await cursor.toArray();
-        return res.send(result);
       }
-    })
+
+      const result = await paymentCollections
+        .find(query)
+        .sort({ paidAt: -1 }) // 🔥 latest payment first
+        .toArray();
+
+      res.send(result);
+    });
+
 
 
     // payment status paid 
@@ -761,7 +725,7 @@ async function run() {
     //     return res.status(500).send({ success: false, message: "Server error" });
     //   }
     // });
-    app.patch('/payment-success', async (req, res) => {
+    app.patch('/payment-success',verifyFbToken, async (req, res) => {
       try {
         const sessionId = req.query.session_id;
         if (!sessionId) return res.status(400).send({ success: false, message: "Missing session_id" });
@@ -867,119 +831,9 @@ async function run() {
 
 
 
+  // Payment Related API 
 
-
-    // Get all parcels OR parcels by email
-    app.get('/parcels', async (req, res) => {
-      const query = {};
-      const { email } = req.query;
-
-      if (email) {
-        query.senderEmail = email;
-      }
-
-      const options = { sort: { createdAt: -1 } };
-      const result = await parcelsCollections.find(query, options).toArray();
-      res.send(result);
-    });
-
-    // Get parcel by ID
-    app.get('/parcels/:id', async (req, res) => {
-      const id = req.params.id;
-      const query = { _id: new ObjectId(id) };
-      const result = await parcelsCollections.findOne(query);
-      res.send(result);
-    });
-
-    // Create parcel
-    app.post('/parcels', async (req, res) => {
-      const parcel = req.body;
-      parcel.createdAt = new Date();
-      const result = await parcelsCollections.insertOne(parcel);
-      res.send(result);
-    });
-
-    // Delete parcel
-    app.delete('/parcels/:id', async (req, res) => {
-      const id = req.params.id;
-      const query = { _id: new ObjectId(id) };
-      const result = await parcelsCollections.deleteOne(query);
-      res.send(result);
-    });
-
-
-    // Payment
-
-    // ============================
-    // 💳 PAYMENT API (STRIPE) 
-    // ============================
-    // payment-checkout-session
-    // New 
-    app.post('/payment-checkout-session', async (req, res) => {
-      const paymentInfo = req.body
-      const amount = parseInt(paymentInfo.cost) * 100
-      const session = await stripe.checkout.sessions.create({
-        line_items: [
-          {
-
-            price_data: {
-              currency: 'USD',
-              unit_amount: amount,
-              product_data: {
-                name: `Please Pay for: ${paymentInfo.parcelName}`
-              }
-            },
-            quantity: 1,
-          },
-        ],
-        mode: 'payment',
-        metadata: {
-          parcelId: paymentInfo.parcelId,
-          parcelName: paymentInfo.parcelName,
-          trackingId: paymentInfo.trackingId,
-
-
-        },
-        customer_email: paymentInfo.senderEmail,
-        success_url: `${process.env.SITE_DOMAIN}/dashboard/payment-success?session_id={CHECKOUT_SESSION_ID}`,
-        cancel_url: `${process.env.SITE_DOMAIN}/dashboard/payment-cancelled`,
-      })
-      res.send({ url: session.url })
-    })
-
-
-
-    // Old 
-    // app.post('/create-checkout-session', async (req, res) => {
-    //   const paymentInfo = req.body;
-    //   const amount = parseInt(paymentInfo.cost) * 100;
-
-    //   const session = await stripe.checkout.sessions.create({
-    //     line_items: [
-    //       {
-    //         price_data: {
-    //           currency: 'USD',
-    //           unit_amount: amount,
-    //           product_data: {
-    //             name: paymentInfo.parcelName,
-    //           },
-    //         },
-    //         quantity: 1,
-    //       },
-    //     ],
-    //     customer_email: paymentInfo.senderEmail,
-    //     mode: 'payment',
-    //     metadata: {
-    //       parcelId: paymentInfo.parcelId,
-    //     },
-    //     success_url: `${process.env.SITE_DOMAIN}/dashboard/payment-success`,
-    //     cancel_url: `${process.env.SITE_DOMAIN}/dashboard/payment-cancelled`,
-    //   });
-
-    //   res.send({ url: session.url });
-    // });
-
-    app.patch('/payment-success', async (req, res) => {
+    app.patch('/payment-success', verifyFbToken, async (req, res) => {
       const sessionId = req.query.session_id
       const session = await stripe.checkout.sessions.retrieve(sessionId)
       console.log('session retrive', session)
@@ -1023,7 +877,7 @@ async function run() {
 
 
     // Booking Count API 
-    app.get('/booking/working-status/status', async (req, res) => {
+    app.get('/booking/working-status/status',verifyFbToken, verifyAdmin, async (req, res) => {
       const pipeline = [
         {
           $facet: {
@@ -1077,8 +931,8 @@ async function run() {
     })
 
     // MongoDB test ping
-    await client.db("admin").command({ ping: 1 });
-    console.log("Connected to MongoDB!");
+    // await client.db("admin").command({ ping: 1 });
+    // console.log("Connected to MongoDB!");
   } finally { }
 }
 
@@ -1087,7 +941,7 @@ run().catch(console.dir);
 
 // HOME ROUTE
 app.get('/', (req, res) => {
-  res.send('Zap is Shifting Shifting');
+  res.send('Home Decore');
 });
 
 // SERVER LISTEN
