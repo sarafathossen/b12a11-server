@@ -118,7 +118,7 @@ async function run() {
 
 
     // User Related API 
-    app.post('/users', verifyFbToken,verifyAdmin, async (req, res) => {
+    app.post('/users', verifyFbToken, verifyAdmin, async (req, res) => {
       const user = req.body;
       user.role = 'user';
       user.createdAt = new Date();
@@ -132,7 +132,7 @@ async function run() {
     });
 
     // Deceretor Related API 
-    app.post('/decorator', verifyFbToken,verifyAdmin, async (req, res) => {
+    app.post('/decorator', verifyFbToken, verifyAdmin, async (req, res) => {
       const decorator = req.body;
       decorator.role = 'pending';
       decorator.createdAt = new Date();
@@ -164,7 +164,7 @@ async function run() {
     });
 
     // Delete Deceretor 
-    app.delete('/decorator/:id',verifyFbToken,verifyAdmin, async (req, res) => {
+    app.delete('/decorator/:id', verifyFbToken, verifyAdmin, async (req, res) => {
       const id = req.params.id;
 
       const result = await decoratorCollection.deleteOne({
@@ -177,7 +177,7 @@ async function run() {
 
 
     // Aproove Deceretor API
-    app.patch('/decorator/:id', verifyFbToken,verifyAdmin, async (req, res) => {
+    app.patch('/decorator/:id', verifyFbToken, verifyAdmin, async (req, res) => {
       try {
         const status = req.body.role;
         const id = req.params.id;
@@ -252,7 +252,7 @@ async function run() {
       res.send(result);
     });
 
-    app.delete("/services/:id", verifyFbToken,verifyAdmin, async (req, res) => {
+    app.delete("/services/:id", async (req, res) => {
       try {
         const id = req.params.id;
         const result = await servicesCollection.deleteOne({ _id: new ObjectId(id) });
@@ -266,7 +266,7 @@ async function run() {
       }
     });
 
-    app.patch("/services/:id", verifyFbToken,verifyAdmin, async (req, res) => {
+    app.patch("/services/:id", verifyFbToken, verifyAdmin, async (req, res) => {
       try {
         const id = req.params.id;
 
@@ -316,7 +316,7 @@ async function run() {
     });
 
     // Booking Related API 
-    app.post('/booking', verifyFbToken, async (req, res) => {
+    app.post('/booking', async (req, res) => {
       const booking = req.body;
       const trackingId = generateTrackingId()
       booking.trackingId = trackingId
@@ -327,7 +327,7 @@ async function run() {
 
     // my booking  
 
-    app.get('/booking',verifyFbToken, async (req, res) => {
+    app.get('/booking', verifyFbToken, async (req, res) => {
       const query = {};
       const { email, deceretorEmail, workingStatus } = req.query;
 
@@ -447,9 +447,9 @@ async function run() {
     })
 
 
-  
 
-    app.patch('/booking/:id',verifyFbToken, async (req, res) => {
+
+    app.patch('/booking/:id', verifyFbToken, async (req, res) => {
       const bookingId = req.params.id;
       const {
         bookedDate,
@@ -565,7 +565,7 @@ async function run() {
     // Service Relater API 
 
     // Service Create 
-    app.post('/service',verifyFbToken,verifyAdmin, async (req, res) => {
+    app.post('/service', verifyFbToken, verifyAdmin, async (req, res) => {
       try {
         const booking = req.body;
 
@@ -595,7 +595,7 @@ async function run() {
 
 
     // delete Booking 
-    app.delete('/booking/:id',verifyFbToken, async (req, res) => {
+    app.delete('/booking/:id', verifyFbToken, async (req, res) => {
       const id = req.params.id;
       const query = { _id: new ObjectId(id) };
       const result = await bookingCollection.deleteOne(query);
@@ -603,7 +603,7 @@ async function run() {
     });
 
     // Payment API
-    app.post('/payment-checkout-session',verifyFbToken, async (req, res) => {
+    app.post('/payment-checkout-session', verifyFbToken, async (req, res) => {
       const paymentInfo = req.body;
 
       const amount = Number(paymentInfo.cost) * 100;
@@ -636,7 +636,7 @@ async function run() {
     });
 
 
-    app.get('/payments',verifyFbToken, async (req, res) => {
+    app.get('/payments', verifyFbToken, async (req, res) => {
       const email = req.query.email;
       const query = {};
 
@@ -725,7 +725,7 @@ async function run() {
     //     return res.status(500).send({ success: false, message: "Server error" });
     //   }
     // });
-    app.patch('/payment-success',verifyFbToken, async (req, res) => {
+    app.patch('/payment-success', verifyFbToken, async (req, res) => {
       try {
         const sessionId = req.query.session_id;
         if (!sessionId) return res.status(400).send({ success: false, message: "Missing session_id" });
@@ -831,7 +831,7 @@ async function run() {
 
 
 
-  // Payment Related API 
+    // Payment Related API 
 
     app.patch('/payment-success', verifyFbToken, async (req, res) => {
       const sessionId = req.query.session_id
@@ -877,7 +877,7 @@ async function run() {
 
 
     // Booking Count API 
-    app.get('/booking/working-status/status',verifyFbToken, verifyAdmin, async (req, res) => {
+    app.get('/booking/working-status/status', verifyFbToken, verifyAdmin, async (req, res) => {
       const pipeline = [
         {
           $facet: {
