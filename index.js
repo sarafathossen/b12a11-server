@@ -67,7 +67,7 @@ const client = new MongoClient(uri, {
 
 async function run() {
   try {
-    // await client.connect();
+  
 
     const db = client.db('decoration_booking_system');
     const userCollections = db.collection('users');
@@ -800,13 +800,13 @@ async function run() {
 
 
     // User Related API 
-    app.get('/users', verifyFbToken, async (req, res) => {
+    app.get('/users',  async (req, res) => {
       const cursor = userCollections.find();
       const result = await cursor.toArray();
       res.send(result);
     });
 
-    app.get('/users/:email/role', verifyFbToken, async (req, res) => {
+    app.get('/users/:email/role',  async (req, res) => {
       const email = req.params.email;
       const query = { email };
       const user = await userCollections.findOne(query);
